@@ -8,6 +8,7 @@ import (
 	_ "github.com/distribution/distribution/v3/registry/auth/silly"
 	_ "github.com/distribution/distribution/v3/registry/auth/token"
 	_ "github.com/distribution/distribution/v3/registry/extension/repository/distribution"
+	_ "github.com/distribution/distribution/v3/registry/extension/repository/oras"
 	_ "github.com/distribution/distribution/v3/registry/proxy"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/azure"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/filesystem"
@@ -19,6 +20,7 @@ import (
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/oss"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/s3-aws"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/swift"
+	_ "github.com/distribution/distribution/v3/registry/storage/extension/repository/oras"
 )
 
 func main() {
