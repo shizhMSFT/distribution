@@ -139,6 +139,30 @@ func (ub *URLBuilder) BuildTagsURL(name reference.Named, values ...url.Values) (
 	return appendValuesURL(tagsURL, values...).String(), nil
 }
 
+// BuildRegistryExtensionsURL constructs a url to list the extensions in the named repository.
+func (ub *URLBuilder) BuildRegistryExtensionsURL(values ...url.Values) (string, error) {
+	route := ub.cloneRoute(RouteNameExtensionsRegistry)
+
+	extensionsURL, err := route.URL()
+	if err != nil {
+		return "", err
+	}
+
+	return appendValuesURL(extensionsURL, values...).String(), nil
+}
+
+// BuildRepositoryExtensionsURL constructs a url to list the extensions in the named repository.
+func (ub *URLBuilder) BuildRepositoryExtensionsURL(name reference.Named, values ...url.Values) (string, error) {
+	route := ub.cloneRoute(RouteNameExtensionsRepository)
+
+	extensionsURL, err := route.URL("name", name.Name())
+	if err != nil {
+		return "", err
+	}
+
+	return appendValuesURL(extensionsURL, values...).String(), nil
+}
+
 // BuildManifestURL constructs a url for the manifest identified by name and
 // reference. The argument reference may be either a tag or digest.
 func (ub *URLBuilder) BuildManifestURL(ref reference.Named) (string, error) {

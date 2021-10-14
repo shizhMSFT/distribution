@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,9 @@ import (
 	"github.com/distribution/distribution/v3/registry/api/errcode"
 	v2 "github.com/distribution/distribution/v3/registry/api/v2"
 	"github.com/distribution/distribution/v3/registry/auth"
+	"github.com/distribution/distribution/v3/registry/extension"
+	registryextension "github.com/distribution/distribution/v3/registry/extension/registry"
+	repositoryextension "github.com/distribution/distribution/v3/registry/extension/repository"
 	registrymiddleware "github.com/distribution/distribution/v3/registry/middleware/registry"
 	repositorymiddleware "github.com/distribution/distribution/v3/registry/middleware/repository"
 	"github.com/distribution/distribution/v3/registry/proxy"
@@ -87,6 +91,12 @@ type App struct {
 
 	// readOnly is true if the registry is in a read-only maintenance mode
 	readOnly bool
+
+	// registryExtensions records applied registry extensions
+	registryExtensions []string
+
+	// repositoryExtensions records applied repository extensions
+	repositoryExtensions []string
 }
 
 // NewApp takes a configuration and returns a configured app, ready to serve
@@ -110,6 +120,8 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	app.register(v2.RouteNameBlob, blobDispatcher)
 	app.register(v2.RouteNameBlobUpload, blobUploadDispatcher)
 	app.register(v2.RouteNameBlobUploadChunk, blobUploadDispatcher)
+	app.register(v2.RouteNameExtensionsRegistry, extensionsDispatcher)
+	app.register(v2.RouteNameExtensionsRepository, extensionsDispatcher)
 
 	// override the storage driver's UA string for registry outbound HTTP requests
 	storageParams := config.Storage.Parameters()
@@ -258,6 +270,10 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 		}
 	}
 
+	// configure storage extensions
+	options = applyStorageExtension(app, options, config.Extension.Registry["storage"], false)
+	options = applyStorageExtension(app, options, config.Extension.Repository["storage"], true)
+
 	// configure storage caches
 	if cc, ok := config.Storage["cache"]; ok {
 		v, ok := cc["blobdescriptor"]
@@ -330,6 +346,16 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	app.repoRemover, ok = app.registry.(distribution.RepositoryRemover)
 	if !ok {
 		dcontext.GetLogger(app).Warnf("Registry does not implement RepositoryRemover. Will not be able to delete repos and tags")
+	}
+
+	// extend registry server
+	err = app.applyRegistryExtension(app, config.Extension.Registry["http"])
+	if err != nil {
+		panic(err)
+	}
+	err = app.applyRepositoryExtension(app, config.Extension.Repository["http"])
+	if err != nil {
+		panic(err)
 	}
 
 	return app
@@ -890,7 +916,94 @@ func (app *App) nameRequired(r *http.Request) bool {
 		return true
 	}
 	routeName := route.GetName()
-	return routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog
+	return routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog &&
+		!strings.HasPrefix(routeName, v2.RouteNameExtensionsRegistry)
+}
+
+// applyRegistryExtension extends a server instance with the configured extensions for registry-level paths.
+func (app *App) applyRegistryExtension(ctx context.Context, extensions []configuration.Extension) error {
+	extensionNames, err := app.applyExtension(ctx, extensions, false)
+	if err != nil {
+		return err
+	}
+	app.registryExtensions = extensionNames
+	return nil
+}
+
+// applyRepositoryExtension extends a server instance with the configured extensions for repository-level paths.
+func (app *App) applyRepositoryExtension(ctx context.Context, extensions []configuration.Extension) error {
+	extensionNames, err := app.applyExtension(ctx, extensions, true)
+	if err != nil {
+		return err
+	}
+	app.repositoryExtensions = extensionNames
+	return nil
+}
+
+// applyExtension extends a server instance with the configured extensions
+func (app *App) applyExtension(ctx context.Context, extensions []configuration.Extension, nameRequired bool) ([]string, error) {
+	level := "registry"
+	getExtension := registryextension.Get
+	if nameRequired {
+		level = "repository"
+		getExtension = repositoryextension.Get
+	}
+
+	extensionNames := []string{}
+	for _, ext := range extensions {
+		if ext.Disabled {
+			dcontext.GetLogger(app).Infof("server %s extension (%s) disabled", level, ext.Name)
+			continue
+		}
+
+		routes, err := getExtension(ctx, ext.Name, ext.Options)
+		if err != nil {
+			return nil, fmt.Errorf("unable to configure server %s extension (%s): %s", level, ext.Name, err)
+		}
+		for _, route := range routes {
+			if err := app.registerExtendedRoute(route, nameRequired); err != nil {
+				return nil, err
+			}
+			extName := fmt.Sprintf(
+				"_%s/%s/%s",
+				route.Namespace,
+				route.Extension,
+				route.Component,
+			)
+			extensionNames = append(extensionNames, extName)
+		}
+	}
+	sort.Strings(extensionNames)
+	return extensionNames, nil
+}
+
+// registerExtendedRoute registers extended route to the application
+func (app *App) registerExtendedRoute(route extension.Route, nameRequired bool) error {
+	desc, ok := v2.ExtendRoute(
+		route.Namespace,
+		route.Extension,
+		route.Component,
+		route.Descriptor,
+		nameRequired,
+	)
+	if !ok {
+		return fmt.Errorf("duplicated route: %s", desc.Name)
+	}
+	app.router.Path(desc.Path).Name(desc.Name)
+	dispatch := route.Dispatcher
+	app.register(desc.Name, func(ctx *Context, r *http.Request) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			extCtx := &extension.Context{
+				Context:           ctx.Context,
+				Repository:        ctx.Repository,
+				RepositoryRemover: ctx.RepositoryRemover,
+				Errors:            ctx.Errors,
+			}
+			dispatch(extCtx, r).ServeHTTP(rw, r)
+			ctx.Errors = extCtx.Errors
+		})
+	})
+	return nil
 }
 
 // apiBase implements a simple yes-man for doing overall checks against the
@@ -1073,4 +1186,23 @@ func startUploadPurger(ctx context.Context, storageDriver storagedriver.StorageD
 			time.Sleep(intervalDuration)
 		}
 	}()
+}
+
+// applyStorageExtension extends a storage instance with the configured extensions
+func applyStorageExtension(ctx context.Context, options []storage.RegistryOption, extensions []configuration.Extension, isRepository bool) []storage.RegistryOption {
+	level := "registry"
+	applyExtension := storage.ApplyRegistryExtension
+	if isRepository {
+		level = "repository"
+		applyExtension = storage.ApplyRepositoryExtension
+	}
+
+	for _, ext := range extensions {
+		if ext.Disabled {
+			dcontext.GetLogger(ctx).Infof("storage %s extension (%s) disabled", level, ext.Name)
+			continue
+		}
+		options = append(options, applyExtension(ctx, ext.Name, ext.Options))
+	}
+	return options
 }

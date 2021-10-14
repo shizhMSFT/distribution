@@ -28,6 +28,12 @@ type Registry interface {
 	Repositories(ctx context.Context, repos []string, last string) (n int, err error)
 }
 
+// ExtendedRegistry provides an interface for repository listing and access to registry-level extensions.
+type ExtendedRegistry interface {
+	Registry
+	distribution.ExtensionProvider
+}
+
 // checkHTTPRedirect is a callback that can manipulate redirected HTTP
 // requests. It is used to preserve Accept and Range headers.
 func checkHTTPRedirect(req *http.Request, via []*http.Request) error {
@@ -62,7 +68,7 @@ func checkHTTPRedirect(req *http.Request, via []*http.Request) error {
 }
 
 // NewRegistry creates a registry namespace which can be used to get a listing of repositories
-func NewRegistry(baseURL string, transport http.RoundTripper) (Registry, error) {
+func NewRegistry(baseURL string, transport http.RoundTripper) (ExtendedRegistry, error) {
 	ub, err := v2.NewURLBuilderFromString(baseURL, false)
 	if err != nil {
 		return nil, err
@@ -134,6 +140,13 @@ func (r *registry) Repositories(ctx context.Context, entries []string, last stri
 	return numFilled, returnErr
 }
 
+func (r *registry) Extensions(ctx context.Context) (distribution.ExtensionService, error) {
+	return &extensions{
+		client: r.client,
+		ub:     r.ub,
+	}, nil
+}
+
 // NewRepository creates a new Repository for the given repository name and base URL.
 func NewRepository(name reference.Named, baseURL string, transport http.RoundTripper) (distribution.Repository, error) {
 	ub, err := v2.NewURLBuilderFromString(baseURL, false)
@@ -194,6 +207,14 @@ func (r *repository) Tags(ctx context.Context) distribution.TagService {
 		ub:     r.ub,
 		name:   r.Named(),
 	}
+}
+
+func (r *repository) Extensions(ctx context.Context) (distribution.ExtensionService, error) {
+	return &extensions{
+		client: r.client,
+		ub:     r.ub,
+		name:   r.Named(),
+	}, nil
 }
 
 // tags implements remote tagging operations.
@@ -948,4 +969,62 @@ func (bs *blobStatter) Clear(ctx context.Context, dgst digest.Digest) error {
 
 func (bs *blobStatter) SetDescriptor(ctx context.Context, dgst digest.Digest, desc distribution.Descriptor) error {
 	return nil
+}
+
+// extensions implements remote extension operations.
+type extensions struct {
+	client *http.Client
+	ub     *v2.URLBuilder
+	name   reference.Named
+}
+
+func (es *extensions) Get(ctx context.Context, name string) (interface{}, error) {
+	return nil, fmt.Errorf("extension %q is not supported", name)
+}
+
+func (es *extensions) All(ctx context.Context) ([]string, error) {
+	var listURLStr string
+	var err error
+	if es.name == nil {
+		listURLStr, err = es.ub.BuildRegistryExtensionsURL()
+	} else {
+		listURLStr, err = es.ub.BuildRepositoryExtensionsURL(es.name)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	listURL, err := url.Parse(listURLStr)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := es.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if SuccessStatus(resp.StatusCode) {
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		extensionsResponse := struct {
+			Extensions []string `json:"extensions"`
+		}{}
+		if err := json.Unmarshal(b, &extensionsResponse); err != nil {
+			return nil, err
+		}
+		return extensionsResponse.Extensions, nil
+	}
+
+	// TODO(shizh): pagination support.
+
+	return nil, HandleErrorResponse(resp)
 }

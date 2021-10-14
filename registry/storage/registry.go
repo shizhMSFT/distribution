@@ -8,6 +8,8 @@ import (
 	"github.com/distribution/distribution/v3/reference"
 	"github.com/distribution/distribution/v3/registry/storage/cache"
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
+	registryextension "github.com/distribution/distribution/v3/registry/storage/extension/registry"
+	repositoryextension "github.com/distribution/distribution/v3/registry/storage/extension/repository"
 	"github.com/docker/libtrust"
 )
 
@@ -25,6 +27,8 @@ type registry struct {
 	blobDescriptorServiceFactory distribution.BlobDescriptorServiceFactory
 	manifestURLs                 manifestURLs
 	driver                       storagedriver.StorageDriver
+	registryExtensions           map[string]registryextension.RegistryExtension
+	repositoryExtensions         map[string]repositoryextension.RepositoryExtension
 }
 
 // manifestURLs holds regular expressions for controlling manifest URL whitelisting
@@ -189,6 +193,13 @@ func (reg *registry) BlobStatter() distribution.BlobStatter {
 	return reg.statter
 }
 
+func (reg *registry) Extensions(ctx context.Context) (distribution.ExtensionService, error) {
+	return &registryExtension{
+		registry:   reg,
+		extensions: reg.registryExtensions,
+	}, nil
+}
+
 // repository provides name-scoped access to various services.
 type repository struct {
 	*registry
@@ -266,6 +277,20 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 		}
 	}
 
+	var extensionHandlers []repositoryextension.ManifestHandler
+	for _, ext := range repo.registry.repositoryExtensions {
+		handler, err := ext.ManifestHandler(ctx, repo, &storeExtension{
+			repository: repo,
+			driver:     repo.driver,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if handler != nil {
+			extensionHandlers = append(extensionHandlers, handler)
+		}
+	}
+
 	ms := &manifestStore{
 		ctx:            ctx,
 		repository:     repo,
@@ -288,6 +313,7 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 			blobStore:    blobStore,
 			manifestURLs: repo.registry.manifestURLs,
 		},
+		extensionHandlers: extensionHandlers,
 	}
 
 	// Apply options
@@ -334,4 +360,11 @@ func (repo *repository) Blobs(ctx context.Context) distribution.BlobStore {
 		deleteEnabled:          repo.registry.deleteEnabled,
 		resumableDigestEnabled: repo.resumableDigestEnabled,
 	}
+}
+
+func (repo *repository) Extensions(ctx context.Context) (distribution.ExtensionService, error) {
+	return &repositoryExtension{
+		repository: repo,
+		extensions: repo.registry.repositoryExtensions,
+	}, nil
 }
