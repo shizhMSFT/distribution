@@ -3,7 +3,6 @@ package oras
 import (
 	"encoding/json"
 	"net/http"
-	"reflect"
 
 	"github.com/distribution/distribution/v3"
 	dcontext "github.com/distribution/distribution/v3/context"
@@ -65,12 +64,15 @@ func (h *referrersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, ok := toExtensionProvider(h.Repository)
-	if !ok {
-		h.Errors = append(h.Errors, errcode.ErrorCodeUnsupported.WithDetail("backend does not support extension"))
+	es, err := h.Repository.Extensions(h)
+	if err != nil {
+		if err == distribution.ErrUnsupported {
+			h.Errors = append(h.Errors, errcode.ErrorCodeUnsupported.WithDetail("backend does not support extension"))
+		} else {
+			h.Errors = append(h.Errors, errcode.ErrorCodeUnknown.WithDetail(err))
+		}
 		return
 	}
-	es := ep.Extensions(h)
 
 	asi, err := es.Get(h, "oras/artifacts")
 	if err != nil {
@@ -107,29 +109,4 @@ func (h *referrersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.Errors = append(h.Errors, errcode.ErrorCodeUnknown.WithDetail(err))
 		return
 	}
-}
-
-func decomposeStruct(in interface{}) (out interface{}, ok bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			out = nil
-			ok = false
-		}
-	}()
-	out = reflect.ValueOf(in).Elem().Field(0).Interface()
-	ok = true
-	return
-}
-
-func toExtensionProvider(i interface{}) (distribution.ExtensionProvider, bool) {
-	tags, ok := i.(distribution.ExtensionProvider)
-	if ok {
-		return tags, true
-	}
-	i, ok = decomposeStruct(i)
-	if !ok {
-		return nil, false
-	}
-	tags, ok = i.(distribution.ExtensionProvider)
-	return tags, ok
 }
