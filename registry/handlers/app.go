@@ -348,6 +348,12 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 		dcontext.GetLogger(app).Warnf("Registry does not implement RepositoryRemover. Will not be able to delete repos and tags")
 	}
 
+	// register the extended namespaces
+	err = app.registerExtendedNamespaces(app, config.Extensions)
+	if err != nil {
+		panic(err)
+	}
+
 	// extend registry server
 	err = app.applyRegistryExtension(app, config.Extension.Registry["http"])
 	if err != nil {
@@ -975,6 +981,35 @@ func (app *App) applyExtension(ctx context.Context, extensions []configuration.E
 	}
 	sort.Strings(extensionNames)
 	return extensionNames, nil
+}
+
+func (app *App) registerExtendedNamespaces(ctx context.Context, extensions map[string]configuration.ExtensionConfig) error {
+
+	extensionNames := []string{}
+	for key, options := range extensions {
+
+		ns, err := extension.Get(ctx, key, options, app.registry)
+		if err != nil {
+			return fmt.Errorf("unable to configure server extension (%s): %s", key, err)
+		}
+		for _, route := range ns.GetRoutes() {
+			// rouet can be extended to determine the path
+
+			if err := app.registerExtendedRoute(route, route.IsNameRequired); err != nil {
+				return err
+			}
+			extName := fmt.Sprintf(
+				"_%s/%s/%s",
+				route.Namespace,
+				route.Extension,
+				route.Component,
+			)
+			extensionNames = append(extensionNames, extName)
+		}
+	}
+	sort.Strings(extensionNames)
+	app.repositoryExtensions = extensionNames
+	return nil
 }
 
 // registerExtendedRoute registers extended route to the application
