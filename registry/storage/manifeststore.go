@@ -42,6 +42,24 @@ func (o skipLayerOption) Apply(m distribution.ManifestService) error {
 	return fmt.Errorf("skip layer verification only valid for manifestStore")
 }
 
+func AddManifestHanlder(mediaType string, handler ManifestHandler) distribution.ManifestServiceOption {
+	return addManifestHandlerOption{mediaType: mediaType, handler: handler}
+}
+
+type addManifestHandlerOption struct {
+	mediaType string
+	handler   ManifestHandler
+}
+
+func (o addManifestHandlerOption) Apply(m distribution.ManifestService) error {
+	if ms, ok := m.(*manifestStore); ok {
+		// verify if already exists, if so fail.
+		ms.manifestHandlerMap[o.mediaType] = o.handler
+		return nil
+	}
+	return fmt.Errorf("this option only valid for manifestStore")
+}
+
 type manifestStore struct {
 	repository *repository
 	blobStore  *linkedBlobStore
@@ -53,6 +71,7 @@ type manifestStore struct {
 	schema2Handler      ManifestHandler
 	ocischemaHandler    ManifestHandler
 	manifestListHandler ManifestHandler
+	manifestHandlerMap  map[string]ManifestHandler
 	extensionHandlers   []repositoryextension.ManifestHandler
 }
 
@@ -115,6 +134,7 @@ func (ms *manifestStore) Get(ctx context.Context, dgst digest.Digest, options ..
 		return ms.schema1Handler.Unmarshal(ctx, dgst, content)
 	case 2:
 		// This can be an image manifest or a manifest list
+		// *********Proposal******: refactor to lookup the handler in the map for the media type and fallback to ocimanifest if not found
 		switch versioned.MediaType {
 		case schema2.MediaTypeManifest:
 			return ms.schema2Handler.Unmarshal(ctx, dgst, content)
@@ -151,6 +171,7 @@ func (ms *manifestStore) Get(ctx context.Context, dgst digest.Digest, options ..
 func (ms *manifestStore) Put(ctx context.Context, manifest distribution.Manifest, options ...distribution.ManifestServiceOption) (digest.Digest, error) {
 	dcontext.GetLogger(ms.ctx).Debug("(*manifestStore).Put")
 
+	// *********Proposal******: refactor to lookup the handler in the map for the media type
 	switch manifest.(type) {
 	case *schema1.SignedManifest:
 		return ms.schema1Handler.Put(ctx, manifest, ms.skipDependencyVerification)

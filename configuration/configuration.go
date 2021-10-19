@@ -255,6 +255,8 @@ type Configuration struct {
 		// Repository configures repository-level extensions.
 		Repository map[string][]Extension `yaml:"repository,omitempty"`
 	} `yaml:"extension,omitempty"`
+
+	Extensions map[string]ExtensionConfig `yaml:"extensions,omitempty"`
 }
 
 // LogHook is composed of hook Level and Type.
@@ -644,6 +646,8 @@ type Middleware struct {
 
 // Extension configures named extensions to be applied at desired components.
 type Extension = Middleware
+
+type ExtensionConfig map[string]interface{}
 
 // Proxy configures the registry as a pull through cache
 type Proxy struct {
