@@ -11,12 +11,12 @@ http:
   addr: :5000
   headers:
     X-Content-Type-Options: [nosniff]
-auth:
-  htpasswd:
-    realm: basic-realm
-    path: /etc/registry
 health:
   storagedriver:
     enabled: true
     interval: 10s
     threshold: 3
+extensions:
+  orasv2:
+    artifacts:
+      - referrers

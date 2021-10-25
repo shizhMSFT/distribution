@@ -255,7 +255,11 @@ type Configuration struct {
 		// Repository configures repository-level extensions.
 		Repository map[string][]Extension `yaml:"repository,omitempty"`
 	} `yaml:"extension,omitempty"`
+
+	Extensions map[string]ExtensionConfig `yaml:"extensions,omitempty"`
 }
+
+type ExtensionConfig map[string]interface{}
 
 // LogHook is composed of hook Level and Type.
 // After hooks configuration, it can execute the next handling automatically,

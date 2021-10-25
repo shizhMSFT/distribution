@@ -29,6 +29,7 @@ type registry struct {
 	driver                       storagedriver.StorageDriver
 	registryExtensions           map[string]registryextension.RegistryExtension
 	repositoryExtensions         map[string]repositoryextension.RepositoryExtension
+	extendedStorages             []ExtendedStorage
 }
 
 // manifestURLs holds regular expressions for controlling manifest URL whitelisting
@@ -45,6 +46,13 @@ type RegistryOption func(*registry) error
 func EnableRedirect(registry *registry) error {
 	registry.blobServer.redirect = true
 	return nil
+}
+
+func AddExtendedStorage(extendedStorage ExtendedStorage) RegistryOption {
+	return func(registry *registry) error {
+		registry.extendedStorages = append(registry.extendedStorages, extendedStorage)
+		return nil
+	}
 }
 
 // EnableDelete is a functional option for NewRegistry. It enables deletion on
@@ -153,6 +161,22 @@ func NewRegistry(ctx context.Context, driver storagedriver.StorageDriver, option
 		if err := option(registry); err != nil {
 			return nil, err
 		}
+	}
+
+	var bac distribution.BlobDescriptorService = &linkedBlobStatter{
+		blobStore: bs,
+	}
+
+	if registry.blobDescriptorServiceFactory != nil {
+		bac = registry.blobDescriptorServiceFactory.BlobAccessController(statter)
+	}
+	linkedBlobStore := &linkedBlobStore{
+		blobStore:            bs,
+		blobAccessController: bac,
+	}
+
+	for _, extendedStorage := range registry.extendedStorages {
+		extendedStorage.UseLinkBlobEnumerator(linkedBlobStore.enumerateLinkBlobs)
 	}
 
 	return registry, nil
@@ -291,6 +315,14 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 		}
 	}
 
+	var extensionManifestHandlers []ManifestHandler
+	for _, ext := range repo.registry.extendedStorages {
+		handlers := ext.GetManifestHandlers(repo, blobStore, blobStore.link)
+		if len(handlers) > 0 {
+			extensionManifestHandlers = append(extensionManifestHandlers, handlers...)
+		}
+	}
+
 	ms := &manifestStore{
 		ctx:            ctx,
 		repository:     repo,
@@ -313,7 +345,8 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 			blobStore:    blobStore,
 			manifestURLs: repo.registry.manifestURLs,
 		},
-		extensionHandlers: extensionHandlers,
+		extensionHandlers:         extensionHandlers,
+		extensionManifestHandlers: extensionManifestHandlers,
 	}
 
 	// Apply options

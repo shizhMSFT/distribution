@@ -10,7 +10,19 @@ import (
 	"github.com/distribution/distribution/v3/registry/storage/extension"
 	registryextension "github.com/distribution/distribution/v3/registry/storage/extension/registry"
 	repositoryextension "github.com/distribution/distribution/v3/registry/storage/extension/repository"
+	"github.com/opencontainers/go-digest"
 )
+
+type ExtendedStorage interface {
+	GetManifestHandlers(
+		repo distribution.Repository,
+		blobStore distribution.BlobStore,
+		linkFunc LinkFunc) []ManifestHandler
+	UseLinkBlobEnumerator(linkBlobEnumerator LinkBlobEnumerate)
+}
+
+type LinkBlobEnumerate func(ctx context.Context, rootPath string, ingestor func(digest.Digest) error) error
+type LinkFunc func(ctx context.Context, path string, dgst digest.Digest) error
 
 func ApplyRegistryExtension(ctx context.Context, name string, options map[string]interface{}) RegistryOption {
 	return func(r *registry) error {

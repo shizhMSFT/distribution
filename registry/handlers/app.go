@@ -97,6 +97,8 @@ type App struct {
 
 	// repositoryExtensions records applied repository extensions
 	repositoryExtensions []string
+
+	extendedNamespaces []extension.ExtendedNamespace
 }
 
 // NewApp takes a configuration and returns a configured app, ready to serve
@@ -274,6 +276,16 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	options = applyStorageExtension(app, options, config.Extension.Registry["storage"], false)
 	options = applyStorageExtension(app, options, config.Extension.Repository["storage"], true)
 
+	// register the extended namespaces
+	err = app.registerExtendedNamespaces(app, config.Extensions)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, ns := range app.extendedNamespaces {
+		options = append(options, storage.AddExtendedStorage(ns))
+	}
+
 	// configure storage caches
 	if cc, ok := config.Storage["cache"]; ok {
 		v, ok := cc["blobdescriptor"]
@@ -349,11 +361,16 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	}
 
 	// extend registry server
-	err = app.applyRegistryExtension(app, config.Extension.Registry["http"])
+	/*err = app.applyRegistryExtension(app, config.Extension.Registry["http"])
 	if err != nil {
 		panic(err)
 	}
 	err = app.applyRepositoryExtension(app, config.Extension.Repository["http"])
+	if err != nil {
+		panic(err)
+	}*/
+
+	err = app.registerExtendedRoutes(app)
 	if err != nil {
 		panic(err)
 	}
@@ -920,6 +937,63 @@ func (app *App) nameRequired(r *http.Request) bool {
 		!strings.HasPrefix(routeName, v2.RouteNameExtensionsRegistry)
 }
 
+func (app *App) registerExtendedNamespaces(ctx context.Context, extensions map[string]configuration.ExtensionConfig) error {
+
+	extendedNamespaces := []extension.ExtendedNamespace{}
+	for key, options := range extensions {
+
+		ns, err := extension.Get(ctx, key, options)
+		if err != nil {
+			return fmt.Errorf("unable to configure server extension (%s): %s", key, err)
+		}
+		extendedNamespaces = append(extendedNamespaces, ns)
+	}
+
+	app.extendedNamespaces = extendedNamespaces
+	return nil
+}
+
+func (app *App) registerExtendedRoutes(ctx context.Context) error {
+	var repositoryExtensions []string
+	var registryExtensions []string
+	for _, ns := range app.extendedNamespaces {
+		for _, route := range ns.GetRepositoryRoutes(app.registry) {
+			// rouet can be extended to determine the path
+
+			if err := app.addExtendedRoute(route, true); err != nil {
+				return err
+			}
+			extName := fmt.Sprintf(
+				"_%s/%s/%s",
+				route.Namespace,
+				route.Extension,
+				route.Component,
+			)
+			repositoryExtensions = append(repositoryExtensions, extName)
+		}
+
+		for _, route := range ns.GetRegistryRoutes(app.registry) {
+			// rouet can be extended to determine the path
+
+			if err := app.addExtendedRoute(route, false); err != nil {
+				return err
+			}
+			extName := fmt.Sprintf(
+				"_%s/%s/%s",
+				route.Namespace,
+				route.Extension,
+				route.Component,
+			)
+			registryExtensions = append(registryExtensions, extName)
+		}
+	}
+	sort.Strings(repositoryExtensions)
+	app.repositoryExtensions = repositoryExtensions
+	sort.Strings(registryExtensions)
+	app.registryExtensions = registryExtensions
+	return nil
+}
+
 // applyRegistryExtension extends a server instance with the configured extensions for registry-level paths.
 func (app *App) applyRegistryExtension(ctx context.Context, extensions []configuration.Extension) error {
 	extensionNames, err := app.applyExtension(ctx, extensions, false)
@@ -979,6 +1053,34 @@ func (app *App) applyExtension(ctx context.Context, extensions []configuration.E
 
 // registerExtendedRoute registers extended route to the application
 func (app *App) registerExtendedRoute(route extension.Route, nameRequired bool) error {
+	desc, ok := v2.ExtendRoute(
+		route.Namespace,
+		route.Extension,
+		route.Component,
+		route.Descriptor,
+		nameRequired,
+	)
+	if !ok {
+		return fmt.Errorf("duplicated route: %s", desc.Name)
+	}
+	app.router.Path(desc.Path).Name(desc.Name)
+	dispatch := route.Dispatcher
+	app.register(desc.Name, func(ctx *Context, r *http.Request) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			extCtx := &extension.Context{
+				Context:           ctx.Context,
+				Repository:        ctx.Repository,
+				RepositoryRemover: ctx.RepositoryRemover,
+				Errors:            ctx.Errors,
+			}
+			dispatch(extCtx, r).ServeHTTP(rw, r)
+			ctx.Errors = extCtx.Errors
+		})
+	})
+	return nil
+}
+
+func (app *App) addExtendedRoute(route extension.ExtendedRoute, nameRequired bool) error {
 	desc, ok := v2.ExtendRoute(
 		route.Namespace,
 		route.Extension,

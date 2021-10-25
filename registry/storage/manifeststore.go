@@ -49,11 +49,12 @@ type manifestStore struct {
 
 	skipDependencyVerification bool
 
-	schema1Handler      ManifestHandler
-	schema2Handler      ManifestHandler
-	ocischemaHandler    ManifestHandler
-	manifestListHandler ManifestHandler
-	extensionHandlers   []repositoryextension.ManifestHandler
+	schema1Handler            ManifestHandler
+	schema2Handler            ManifestHandler
+	ocischemaHandler          ManifestHandler
+	manifestListHandler       ManifestHandler
+	extensionHandlers         []repositoryextension.ManifestHandler
+	extensionManifestHandlers []ManifestHandler
 }
 
 var _ distribution.ManifestService = &manifestStore{}
@@ -96,6 +97,12 @@ func (ms *manifestStore) Get(ctx context.Context, dgst digest.Digest, options ..
 		for _, extensionHandler := range ms.extensionHandlers {
 			if extensionHandler.CanUnmarshal(content) {
 				m, err := extensionHandler.Unmarshal(ctx, dgst, content)
+				return true, m, err
+			}
+		}
+
+		for _, extensionHandler := range ms.extensionManifestHandlers {
+			if m, err := extensionHandler.Unmarshal(ctx, dgst, content); err != distribution.ErrManifestFormatNotSupported {
 				return true, m, err
 			}
 		}
@@ -166,6 +173,12 @@ func (ms *manifestStore) Put(ctx context.Context, manifest distribution.Manifest
 	for _, extensionHandler := range ms.extensionHandlers {
 		if extensionHandler.CanPut(manifest) {
 			return extensionHandler.Put(ctx, manifest, ms.skipDependencyVerification)
+		}
+	}
+
+	for _, extensionHandler := range ms.extensionManifestHandlers {
+		if m, err := extensionHandler.Put(ctx, manifest, ms.skipDependencyVerification); err != distribution.ErrManifestFormatNotSupported {
+			return m, err
 		}
 	}
 
