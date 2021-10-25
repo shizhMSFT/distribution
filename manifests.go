@@ -2,10 +2,16 @@ package distribution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"mime"
 
 	"github.com/opencontainers/go-digest"
+)
+
+var (
+	// ErrManifestFormatNotSupported
+	ErrManifestFormatNotSupported = errors.New("manifest format not supported")
 )
 
 // Manifest represents a registry object specifying a set of

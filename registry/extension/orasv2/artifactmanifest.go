@@ -1,28 +1,30 @@
-package artifact
+package orasv2
 
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/distribution/distribution/v3"
+	"github.com/opencontainers/go-digest"
 	v1 "github.com/oras-project/artifacts-spec/specs-go/v1"
 )
 
 func init() {
-	/*	unmarshalFunc := func(b []byte) (distribution.Manifest, distribution.Descriptor, error) {
-			d := new(DeserializedManifest)
-			err := d.UnmarshalJSON(b)
-			if err != nil {
-				return nil, distribution.Descriptor{}, err
-			}
-
-			dgst := digest.FromBytes(b)
-			return d, distribution.Descriptor{Digest: dgst, Size: int64(len(b)), MediaType: v1.MediaTypeArtifactManifest}, err
+	unmarshalFunc := func(b []byte) (distribution.Manifest, distribution.Descriptor, error) {
+		d := new(DeserializedManifest)
+		err := d.UnmarshalJSON(b)
+		if err != nil {
+			return nil, distribution.Descriptor{}, err
 		}
-			err := distribution.RegisterManifestSchema(v1.MediaTypeArtifactManifest, unmarshalFunc)
-			if err != nil {
-				panic(fmt.Sprintf("Unable to register ORAS artifact manifest: %s", err))
-			}*/
+
+		dgst := digest.FromBytes(b)
+		return d, distribution.Descriptor{Digest: dgst, Size: int64(len(b)), MediaType: v1.MediaTypeArtifactManifest}, err
+	}
+	err := distribution.RegisterManifestSchema(v1.MediaTypeArtifactManifest, unmarshalFunc)
+	if err != nil {
+		panic(fmt.Sprintf("Unable to register ORAS artifact manifest: %s", err))
+	}
 }
 
 // Manifest describes ORAS artifact manifests.
