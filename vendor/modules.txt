@@ -391,8 +391,4 @@ gopkg.in/check.v1
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2
-<<<<<<< HEAD
-# google.golang.org/grpc => google.golang.org/grpc v0.0.0-20160317175043-d3ddb4469d5a
 # github.com/opencontainers/image-spec => github.com/oci-playground/image-spec v1.0.3-0.20220502203203-687ae397e329
-=======
->>>>>>> c202b9b0d7b79a67337dec8e1f1bafb1c7095315
