@@ -78,4 +78,4 @@ require (
 	google.golang.org/protobuf v1.26.0 // indirect
 )
 
-replace github.com/opencontainers/image-spec => github.com/oci-playground/image-spec v1.0.3-0.20220502203203-687ae397e329
+replace github.com/opencontainers/image-spec => github.com/oci-playground/image-spec v1.0.3-0.20220524171020-1a83d467956c
