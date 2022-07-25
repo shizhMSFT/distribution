@@ -60,7 +60,7 @@ func (ms *ocischemaManifestHandler) Put(ctx context.Context, manifest distributi
 		return "", err
 	}
 
-	if !reflect.DeepEqual(m.Reference, v1.Descriptor{}) {
+	if !reflect.DeepEqual(m.Reference, distribution.Descriptor{}) {
 		// add link file here if Reference field isn't empty
 		err = ms.indexReferrers(ctx, m, revision.Digest)
 		if err != nil {
