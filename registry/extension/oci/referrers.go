@@ -22,7 +22,7 @@ func (h *referrersHandler) getReferrers(w http.ResponseWriter, r *http.Request) 
 	dcontext.GetLogger(h.extContext).Debug("Get")
 
 	// This can be empty
-	artifactType := r.FormValue("artifactType")
+	artifactType := r.URL.Query().Get("artifactType")
 
 	if h.Digest == "" {
 		h.extContext.Errors = append(h.extContext.Errors, v2.ErrorCodeManifestUnknown.WithDetail("digest not specified"))
@@ -47,6 +47,7 @@ func (h *referrersHandler) getReferrers(w http.ResponseWriter, r *http.Request) 
 		Versioned: specs.Versioned{
 			SchemaVersion: 2,
 		},
+		MediaType:   v1.MediaTypeImageIndex,
 		Manifests:   referrers,
 		Annotations: map[string]string{},
 	}
