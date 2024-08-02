@@ -30,7 +30,7 @@ import (
 //
 // The following is an example of the contents of Digest types:
 //
-// 	sha256:7173b809ca12ec5dee4506cd86be934c4596dd234ee82c0662eac04a8c2c71dc
+//	sha256:7173b809ca12ec5dee4506cd86be934c4596dd234ee82c0662eac04a8c2c71dc
 //
 // This allows to abstract the digest behind this type and work only in those
 // terms.
@@ -49,7 +49,9 @@ func NewDigestFromBytes(alg Algorithm, p []byte) Digest {
 	return NewDigestFromEncoded(alg, alg.Encode(p))
 }
 
-// NewDigestFromHex is deprecated. Please use NewDigestFromEncoded.
+// NewDigestFromHex returns a Digest from alg and the hex encoded digest.
+//
+// Deprecated: use [NewDigestFromEncoded] instead.
 func NewDigestFromHex(alg, hex string) Digest {
 	return NewDigestFromEncoded(Algorithm(alg), hex)
 }
@@ -101,14 +103,13 @@ func FromString(s string) Digest {
 // Validate checks that the contents of d is a valid digest, returning an
 // error if not.
 func (d Digest) Validate() error {
-	s := string(d)
-	i := strings.Index(s, ":")
-	if i <= 0 || i+1 == len(s) {
+	alg, encoded, ok := strings.Cut(string(d), ":")
+	if !ok || encoded == "" {
 		return ErrDigestInvalidFormat
 	}
-	algorithm, encoded := Algorithm(s[:i]), s[i+1:]
+	algorithm := Algorithm(alg)
 	if !algorithm.Available() {
-		if !DigestRegexpAnchored.MatchString(s) {
+		if !DigestRegexpAnchored.MatchString(string(d)) {
 			return ErrDigestInvalidFormat
 		}
 		return ErrDigestUnsupported
@@ -116,10 +117,14 @@ func (d Digest) Validate() error {
 	return algorithm.Validate(encoded)
 }
 
-// Algorithm returns the algorithm portion of the digest. This will panic if
+// Algorithm returns the algorithm portion of the digest. It panics if
 // the underlying digest is not in a valid format.
 func (d Digest) Algorithm() Algorithm {
-	return Algorithm(d[:d.sepIndex()])
+	alg, _, ok := strings.Cut(string(d), ":")
+	if !ok {
+		panic(fmt.Sprintf("no ':' separator in digest %q", d))
+	}
+	return Algorithm(alg)
 }
 
 // Verifier returns a writer object that can be used to verify a stream of
@@ -131,27 +136,24 @@ func (d Digest) Verifier() Verifier {
 	}
 }
 
-// Encoded returns the encoded portion of the digest. This will panic if the
+// Encoded returns the encoded portion of the digest. It panics if the
 // underlying digest is not in a valid format.
 func (d Digest) Encoded() string {
-	return string(d[d.sepIndex()+1:])
+	_, encoded, ok := strings.Cut(string(d), ":")
+	if !ok {
+		panic(fmt.Sprintf("no ':' separator in digest %q", d))
+	}
+	return encoded
 }
 
-// Hex is deprecated. Please use Digest.Encoded.
+// Hex returns the encoded portion of the digest. This will panic if the
+// underlying digest is not in a valid format.
+//
+// Deprecated: [Digest.Encoded] instead.
 func (d Digest) Hex() string {
 	return d.Encoded()
 }
 
 func (d Digest) String() string {
 	return string(d)
-}
-
-func (d Digest) sepIndex() int {
-	i := strings.Index(string(d), ":")
-
-	if i < 0 {
-		panic(fmt.Sprintf("no ':' separator in digest %q", d))
-	}
-
-	return i
 }
